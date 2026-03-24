@@ -25,23 +25,23 @@ The codebase is intentionally kept lightweight and modular, and is structured so
 
 ## Project Structure
 
-
+```text
 ├── src/svmx/
-│ ├── data/
-│ │ └── preprocess.py # Normalisation, encoding, missing values
-│ ├── explainers/
-│ │ ├── svmx.py # Core SVM-X explainer
-│ │ └── local_sampling.py # Neighbourhood perturbation & weighting
-│ ├── evaluation/
-│ │ └── fidelity.py # Accuracy, F1, MSE, stability metrics
-│ └── experiments/
-│ └── run_local_explanations.py # Minimal experiment entry point
+│   ├── data/
+│   │   └── preprocess.py          # Normalisation, encoding, missing values
+│   ├── explainers/
+│   │   ├── svmx.py                # Core SVM-X explainer
+│   │   └── local_sampling.py      # Neighbourhood perturbation & weighting
+│   ├── evaluation/
+│   │   └── fidelity.py            # Accuracy, F1, MSE, stability metrics
+│   └── experiments/
+│       └── run_local_explanations.py # Minimal experiment entry point
 ├── scripts/
-│ └── run_bank_rf.sh # Reproducible experiment launcher
+│   └── run_bank_rf.sh             # Reproducible experiment launcher
 ├── tests/
-│ └── test_preprocess.py # Unit tests for preprocessing
+│   └── test_preprocess.py         # Unit tests for preprocessing
 ├── docs/
-│ └── questionnaire_notes.md # Structured notes for M2 application
+│   └── questionnaire_notes.md     # Structured notes for M2 application
 ├── requirements.txt
 └── README.md
 
