@@ -1,58 +1,95 @@
 # SVM-X: Local Explanations via SVM Surrogates
 
-> **Reproduction-oriented implementation** — this is **not** official code from the paper authors.  
-> Based on: *"Towards Faithful Local Explanations: Leveraging SVM to Interpret Black-Box Machine Learning Models"* (Xu et al., Symmetry 2025).
+> Reproduction-oriented implementation based on  
+> **Xu et al., "Towards Faithful Local Explanations: Leveraging SVM to Interpret Black-Box Machine Learning Models" (Symmetry 2025)**  
+> This repository is **not** the official code release from the paper authors.
 
 ## Overview
 
-SVM-X is a model-agnostic local explanation method that uses a linear Support Vector Machine as a surrogate to approximate a black-box model's decision boundary in the neighbourhood of a target instance. The original paper suggests that the margin-maximising property of SVMs can yield explanations with improved local fidelity and weight stability compared to linear surrogates (e.g. LIME) or mixture-based approaches (e.g. LEMNA).
+SVM-X is a model-agnostic local explanation method that fits a linear Support Vector Machine (SVM) as a surrogate around a target instance, then uses the surrogate's weight vector as a local feature-importance explanation.
 
-This repository implements a **minimal, research-oriented version of the SVM-X pipeline** for tabular datasets (UCI Adult, Bank Marketing), including preprocessing, neighbourhood sampling, surrogate fitting, feature-weight extraction, and local fidelity evaluation.
+This repository provides a lightweight research implementation of the SVM-X pipeline for tabular datasets, including:
 
-The codebase is intentionally kept lightweight and modular, and is structured so that additional datasets or explanation baselines could be integrated in the future. The current implementation focuses on demonstrating the core SVM-X workflow rather than providing a full benchmarking framework.
+- preprocessing for Adult and Bank Marketing
+- neighbourhood generation around a target instance
+- prediction-probability-based sample weighting
+- local linear SVM surrogate fitting
+- feature-weight extraction
+- fidelity and stability evaluation
+- minimal experiment scripts and tests
 
-**What is implemented:**
-- SVM-X algorithm (based on Algorithm 1 from the paper)
-- Prediction-probability-based distance metric (Eq. 8) and exponential sample weighting (Eq. 7)
-- Group-aware one-hot perturbation (ensuring valid categorical samples)
-- Local fidelity evaluation (accuracy, F1, MSE) and weight stability metric
-- Minimal experiment runner with JSON output
+## Current Scope
 
-**What is not yet implemented:**
-- Explicit baseline pipelines (e.g. LIME, LEMNA)
-- Text-based datasets (e.g. Amazon Reviews)
-- Neural network (DNN) target models
+### Implemented
+- SVM-X core explainer
+- preprocessing for UCI Adult and Bank Marketing style data
+- group-aware one-hot perturbation for categorical features
+- fidelity metrics: accuracy, recall, F1, MSE
+- explanation stability metric
+- target models: Logistic Regression, Random Forest, Decision Tree, XGBoost
+- minimal experiment runner with JSON output
+- unit tests for preprocessing, sampling, weighting, and shape consistency
+
+### Not Yet Implemented
+- LIME / LEMNA baseline pipelines
+- Amazon Product Review dataset
+- DNN target models
+- large-scale benchmark replication of all paper results
 
 ## Project Structure
 
 ```text
+.
+├── README.md
+├── requirements.txt
+├── environment.yml
+├── scripts/
+│   ├── run_bank_rf.sh
+│   ├── run_adult_lr.sh
+│   └── run_full_reproduction.sh
+├── docs/
+│   ├── questionnaire_notes.md
+│   ├── data_card_adult.md
+│   ├── data_card_bank.md
+│   ├── model_card_svmx.md
+│   └── troubleshooting.md
 ├── src/svmx/
 │   ├── data/
-│   │   └── preprocess.py          # Normalisation, encoding, missing values
+│   │   └── preprocess.py
 │   ├── explainers/
-│   │   ├── svmx.py                # Core SVM-X explainer
-│   │   └── local_sampling.py      # Neighbourhood perturbation & weighting
+│   │   ├── svmx.py
+│   │   └── local_sampling.py
 │   ├── evaluation/
-│   │   └── fidelity.py            # Accuracy, F1, MSE, stability metrics
-│   └── experiments/
-│       └── run_local_explanations.py # Minimal experiment entry point
-├── scripts/
-│   └── run_bank_rf.sh             # Reproducible experiment launcher
-├── tests/
-│   └── test_preprocess.py         # Unit tests for preprocessing
-├── docs/
-│   └── questionnaire_notes.md     # Structured notes for M2 application
-├── requirements.txt
-└── README.md
+│   │   └── fidelity.py
+│   ├── experiments/
+│   │   └── run_local_explanations.py
+│   ├── models/
+│   │   ├── logistic_regression.py
+│   │   ├── random_forest.py
+│   │   ├── decision_tree.py
+│   │   ├── xgboost_model.py
+│   │   ├── registry.py
+│   │   └── train.py
+│   └── utils/
+│       ├── metrics.py
+│       └── seed.py
+└── tests/
+    ├── test_preprocess.py
+    ├── test_local_sampling.py
+    ├── test_distance_weighting.py
+    ├── test_metrics.py
+    ├── test_split_reproducibility.py
+    └── test_svmx_shapes.py
+Setup
 
+Create an environment and install dependencies:
 
-## Setup
-
-```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+Requirements
 
-Minimal requirements.txt:
+Minimal dependencies:
 
 numpy>=1.24
 pandas>=2.0
@@ -60,38 +97,75 @@ scikit-learn>=1.3
 xgboost>=2.0
 pytest>=7.4
 Quick Start
-# Run a minimal SVM-X experiment on the Bank dataset with a Random Forest target
+
+Run a small local experiment on the Bank dataset with a Random Forest target model:
+
 bash scripts/run_bank_rf.sh
 
-# Or run directly (uses synthetic demo data when real CSVs are unavailable):
-python -m src.svmx.experiments.run_local_explanations \
-    --dataset bank --model rf --n_samples 2000 --top_k 5 --seed 42
+Or call the experiment runner directly:
 
-The experiment script trains a black-box model, explains a single target instance with SVM-X, evaluates local fidelity, and saves a JSON results file.
+python -m src.svmx.experiments.run_local_explanations \
+  --dataset bank \
+  --model rf \
+  --n_samples 2000 \
+  --top_k 5 \
+  --seed 42 \
+  --output_dir outputs/bank
+
+The script will:
+
+build a synthetic demo dataset,
+
+preprocess train/test splits,
+
+train a target model,
+
+generate a local explanation for one instance,
+
+compute fidelity and stability metrics,
+
+save results to a JSON file in outputs/....
 
 Evaluation Metrics
-Metric	What it measures
-Accuracy	Fraction of local samples where surrogate and black-box agree on class
-F1 Score	Harmonic mean of precision and recall on surrogate vs. black-box labels
-MSE	Mean squared error between surrogate and black-box predicted probabilities
-Weight variance	Mean variance of feature weights across nearby target records (stability)
 
-These metrics follow Section 4.1.3 of the paper. The target model's predictions are treated as the reference for evaluating the surrogate locally.
+Accuracy: class agreement between black-box and surrogate on local samples
+
+Recall: recall of surrogate predictions with respect to black-box labels
+
+F1: balanced fidelity score
+
+MSE: mean squared error between black-box and surrogate predicted probabilities
+
+Weight stability: mean variance of feature weights under small perturbations
+
+Important Implementation Notes
+
+The paper formulates surrogate fitting using a weighted MSE-style objective.
+
+This implementation uses sklearn.svm.SVC(kernel="linear") with sample_weight, which optimises a hinge-loss objective instead.
+
+This is a practical approximation for reproduction purposes, not an exact optimisation match.
 
 My Contribution
 
-I built this repository from scratch as a personal research project to:
+I built this repository as a reproduction-oriented research project based on the published paper. My work includes:
 
-Implement the SVM-X algorithm based on the paper's mathematical description, including the prediction-probability distance metric and exponential weighting scheme.
+implementing preprocessing and feature-stat extraction for tabular datasets,
 
-Design a modular and reproducible pipeline for tabular data, covering preprocessing, sampling, surrogate fitting, and evaluation.
+implementing neighbourhood generation and distance-based weighting,
 
-Address underspecified details in the paper (e.g. handling one-hot features during perturbation, dealing with degenerate local regions) with explicit and documented implementation choices.
+implementing the SVM-X explainer and fidelity evaluation pipeline,
 
-Highlight practical differences between the paper's formulation (weighted MSE objective) and the sklearn-based approximation (hinge-loss SVM).
+writing experiment scripts, tests, and supporting documentation.
 
-All code, experiment scripts, and documentation are my own work. The paper's authors did not release official code; this implementation is based solely on the published methodology.
+Limitations
+
+This repository does not yet reproduce the full paper benchmark.
+
+Baseline explainers such as LIME and LEMNA are not yet implemented here.
+
+Results generated by this repository should be interpreted as local reproduction experiments, not as an official replication package.
 
 License
 
-MIT — for educational and research purposes.
+MIT License.
