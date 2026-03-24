@@ -5,26 +5,46 @@ Implements the local sample generation strategy from Section 3.1:
   - Perturb a random subset of features in x_t to create each neighbour.
   - Weight each neighbour using the prediction-probability distance (Eq. 7-8).
 
-Designed for one-hot-encoded tabular data: categorical indicators are sampled
-as binary {0, 1}, continuous columns within their observed [min, max] range.
+Designed for one-hot-encoded tabular data. Categorical features are handled
+as groups: when perturbing a one-hot group, exactly one column is set to 1
+and all others to 0, so every generated sample remains a valid category.
 """
 
 from __future__ import annotations
 
-import numpy as np
+from collections import defaultdict
 from typing import Callable
 
+import numpy as np
 
-# ------------------------------------------------------------------
-# Validation
-# ------------------------------------------------------------------
+
+def build_one_hot_groups(
+    feature_names: list[str],
+    categorical_mask: np.ndarray,
+) -> dict[str, list[int]]:
+    """
+    Infer one-hot groups from encoded feature names produced by pd.get_dummies.
+
+    Example:
+        education_Bachelors
+        education_Masters
+    -> group key: "education"
+    """
+    prefix_to_indices: dict[str, list[int]] = defaultdict(list)
+
+    for i, name in enumerate(feature_names):
+        if not categorical_mask[i]:
+            continue
+        if "_" in name:
+            prefix = name.rsplit("_", 1)[0]
+        else:
+            prefix = name
+        prefix_to_indices[prefix].append(i)
+
+    return {k: sorted(v) for k, v in prefix_to_indices.items() if len(v) >= 2}
+
 
 def validate_feature_stats(feature_stats: dict, n_features: int) -> None:
-    """
-    Check that *feature_stats* has the required keys and consistent lengths.
-
-    Raises ValueError with a descriptive message on any mismatch.
-    """
     required_keys = {"ranges", "categorical_mask"}
     missing = required_keys - set(feature_stats.keys())
     if missing:
@@ -34,16 +54,13 @@ def validate_feature_stats(feature_stats: dict, n_features: int) -> None:
         raise ValueError(
             f"len(ranges)={len(feature_stats['ranges'])} != n_features={n_features}"
         )
+
     cat_mask = np.asarray(feature_stats["categorical_mask"])
     if cat_mask.shape[0] != n_features:
         raise ValueError(
             f"len(categorical_mask)={cat_mask.shape[0]} != n_features={n_features}"
         )
 
-
-# ------------------------------------------------------------------
-# Neighbourhood generation
-# ------------------------------------------------------------------
 
 def generate_neighbourhood(
     x_t: np.ndarray,
@@ -52,27 +69,17 @@ def generate_neighbourhood(
     random_state: int = 42,
 ) -> np.ndarray:
     """
-    Generate *n_samples* perturbed copies of the target record *x_t*.
+    Generate n_samples perturbed copies of x_t.
 
-    For each sample:
-      1. Randomly choose how many features to perturb (uniform in [1, d]).
-      2. Select that many features uniformly at random.
-      3. For categorical (one-hot) columns: flip to 0 or 1 with equal probability.
-         For continuous columns: draw uniformly from [min, max].
-
-    Parameters
-    ----------
-    x_t : np.ndarray, shape (n_features,)
-    n_samples : int
-    feature_stats : dict
-        "ranges"           : list — (min, max) for continuous, or array([0, 1])
-                             for one-hot binary features.
-        "categorical_mask" : bool array, True where feature is a one-hot indicator.
-    random_state : int
-
-    Returns
-    -------
-    neighbours : np.ndarray, shape (n_samples, n_features)
+    Strategy:
+      1. Build perturbable units:
+         - one continuous feature = one unit
+         - one one-hot group = one unit
+         - lone binary indicator = one unit
+      2. Randomly choose how many units to perturb
+      3. Continuous units: sample uniformly in [min, max]
+         Group units: activate exactly one column in the group
+         Binary units: sample 0/1
     """
     rng = np.random.RandomState(random_state)
     d = x_t.shape[0]
@@ -81,30 +88,58 @@ def generate_neighbourhood(
 
     ranges = feature_stats["ranges"]
     cat_mask = np.asarray(feature_stats["categorical_mask"])
+    feature_names = feature_stats.get("feature_names")
 
+    ohe_groups: dict[str, list[int]] = {}
+    if feature_names is not None:
+        ohe_groups = build_one_hot_groups(feature_names, cat_mask)
+
+    grouped_indices: set[int] = set()
+    for indices in ohe_groups.values():
+        grouped_indices.update(indices)
+
+    units: list[tuple[str, object]] = []
+
+    for j in range(d):
+        if j in grouped_indices:
+            continue
+        if cat_mask[j]:
+            units.append(("binary", j))
+        else:
+            units.append(("continuous", j))
+
+    for _, indices in ohe_groups.items():
+        units.append(("group", indices))
+
+    n_units = len(units)
     neighbours = np.tile(x_t, (n_samples, 1)).astype(np.float64)
 
     for i in range(n_samples):
-        n_perturb = rng.randint(1, d + 1)
-        perturb_idx = rng.choice(d, size=n_perturb, replace=False)
+        n_perturb = rng.randint(1, n_units + 1)
+        chosen = rng.choice(n_units, size=n_perturb, replace=False)
 
-        for j in perturb_idx:
-            if cat_mask[j]:
-                # One-hot indicator: sample binary {0, 1}
-                neighbours[i, j] = float(rng.randint(0, 2))
-            else:
-                # Continuous: uniform within observed range
+        for unit_id in chosen:
+            kind, payload = units[unit_id]
+
+            if kind == "continuous":
+                j = int(payload)
                 lo, hi = ranges[j]
                 if lo < hi:
                     neighbours[i, j] = rng.uniform(lo, hi)
-                # If lo == hi the feature is constant; leave it unchanged.
+
+            elif kind == "binary":
+                j = int(payload)
+                neighbours[i, j] = float(rng.randint(0, 2))
+
+            elif kind == "group":
+                col_indices = payload
+                for idx in col_indices:
+                    neighbours[i, idx] = 0.0
+                active = rng.choice(col_indices)
+                neighbours[i, active] = 1.0
 
     return neighbours
 
-
-# ------------------------------------------------------------------
-# Distance-based weighting (Eq. 7-8)
-# ------------------------------------------------------------------
 
 def compute_sample_weights(
     x_t: np.ndarray,
@@ -112,31 +147,10 @@ def compute_sample_weights(
     predict_proba_fn: Callable[[np.ndarray], np.ndarray],
 ) -> np.ndarray:
     """
-    Assign importance weights based on the paper's probability-distance metric.
-
-    Distance (Eq. 8):
-        Dist = (||P_neighbour - P_boundary||_2 - ||P_xt - P_boundary||_2)^2
-    where P_boundary = (1/C, ..., 1/C) for a C-class problem.
-
-    Weight (Eq. 7):
-        pi(neighbour) = exp(-Dist)
-
-    Neighbours whose predicted probability is similar to x_t's receive higher
-    weight, focusing the surrogate on the locally relevant region.
-
-    Parameters
-    ----------
-    x_t : np.ndarray, shape (n_features,)
-    neighbours : np.ndarray, shape (n_samples, n_features)
-    predict_proba_fn : callable
-        Black-box probability output: X (n, d) -> (n, C).
-
-    Returns
-    -------
-    weights : np.ndarray, shape (n_samples,), mean-normalised.
+    Distance-based weighting from Eq. 7-8 in the paper.
     """
-    p_xt = predict_proba_fn(x_t.reshape(1, -1))       # (1, C)
-    p_neighbours = predict_proba_fn(neighbours)         # (N, C)
+    p_xt = predict_proba_fn(x_t.reshape(1, -1))
+    p_neighbours = predict_proba_fn(neighbours)
 
     n_classes = p_xt.shape[1]
     p_boundary = np.full(n_classes, 1.0 / n_classes)
@@ -144,17 +158,12 @@ def compute_sample_weights(
     dist_xt = np.linalg.norm(p_xt.ravel() - p_boundary)
     dist_neighbours = np.linalg.norm(p_neighbours - p_boundary, axis=1)
 
-    dist = (dist_neighbours - dist_xt) ** 2   # Eq. 8
-    weights = np.exp(-dist)                    # Eq. 7
+    dist = (dist_neighbours - dist_xt) ** 2
+    weights = np.exp(-dist)
 
-    # Mean-normalise so the total weight scale matches n_samples
     weights = weights / weights.mean()
     return weights
 
-
-# ------------------------------------------------------------------
-# Fallback: Euclidean-kernel weighting (LIME-style, for comparison)
-# ------------------------------------------------------------------
 
 def compute_euclidean_weights(
     x_t: np.ndarray,
@@ -162,9 +171,7 @@ def compute_euclidean_weights(
     kernel_width: float = 0.75,
 ) -> np.ndarray:
     """
-    Euclidean-distance exponential kernel, similar to LIME's default.
-
-    Useful as a baseline or when the black-box does not expose probabilities.
+    LIME-style Euclidean kernel weighting baseline.
     """
     dists = np.linalg.norm(neighbours - x_t, axis=1)
     weights = np.sqrt(np.exp(-(dists ** 2) / (kernel_width ** 2)))
