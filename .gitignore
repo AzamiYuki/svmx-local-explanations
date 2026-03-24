@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Testing
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project outputs (keep directory structure via .gitkeep)
+outputs/**
+!outputs/.gitkeep
+!outputs/adult/.gitkeep
+!outputs/bank/.gitkeep
+
+artifacts/**
+!artifacts/.gitkeep
+!artifacts/figures/.gitkeep
+!artifacts/tables/.gitkeep
+!artifacts/logs/.gitkeep
+
+# Data files (large; download separately)
+data/raw/*.csv
+data/processed/*.csv
+data/interim/*.csv
