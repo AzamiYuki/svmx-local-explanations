@@ -9,7 +9,7 @@ Designed for one-hot-encoded tabular data. Categorical features are handled
 as groups: when perturbing a one-hot group, exactly one column is set to 1
 and all others to 0, so every generated sample remains a valid category.
 """
-
+# Updated: Sample exactly one active column per one-hot group to prevent invalid states.
 from __future__ import annotations
 
 from collections import defaultdict
